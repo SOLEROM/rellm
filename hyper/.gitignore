@@ -1,0 +1,19 @@
+# Created by install.sh on each host; never commit.
+HyperQwen/
+venv/
+models/
+*.safetensors
+*.bak-orig
+*.pt
+
+# Secrets
+api_key.txt
+.env
+*.key
+
+# Logs / runtime
+*.log
+nohup.out
+__pycache__/
+*.pyc
+.cache/
