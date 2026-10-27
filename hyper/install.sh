@@ -1,29 +1,48 @@
 #!/usr/bin/env bash
-# install.sh — install HyperQwen (bare-metal venv) and prepare the Huihui
-# Qwen3.8-27B abliterated model for it. Idempotent: re-running skips done steps.
+# install.sh: install one model and the server it needs. Idempotent: re-running skips done steps.
 #
-#   bash install.sh                 # everything: venv, vLLM, patches, model, prepare
-#   bash install.sh --no-model      # stack only (no 19.5 GB download)
-#   SKIP_VERIFY=1 bash install.sh   # skip verify.sh
+#   bash install.sh --list               # models it knows (models.sh)
+#   bash install.sh                      # the default model for this GPU
+#   bash install.sh qwen3.6-35b-a3b      # llama.cpp + GGUF   (install-gguf.sh)
+#   bash install.sh qwen3.8-27b          # HyperQwen + vLLM   (this file)
+#   bash install.sh <id> --no-model      # server only, no model download
+#   SKIP_VERIFY=1 bash install.sh        # skip verify.sh (HyperQwen)
 #
-# Env overrides:
+# HyperQwen env overrides:
 #   HQ_DIR      HyperQwen checkout   (default: ./HyperQwen next to this script)
 #   HQ_REF      HyperQwen commit/branch (default: the tested commit)
-#   MODEL_REPO  HF repo to serve     (default: nchapman/Huihui-Qwen3.8-27B-abliterated-W4A16-GPTQ)
+#   MODEL_REPO  HF repo to serve     (default: the model's repo in models.sh)
 #   HQ_EXTRAS   "fa2 pthfa kvarn"    optional CUDA builds (sm80+ only; off by default)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=models.sh
+source "$HERE/models.sh"
+WITH_MODEL=1
+ARG_MODEL=""
+for a in "$@"; do
+  case "$a" in
+    --no-model) WITH_MODEL=0 ;;
+    --list) echo "Models:"; model_list; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    -*) echo "unknown option $a" >&2; exit 2 ;;
+    *) ARG_MODEL="$a" ;;
+  esac
+done
+model_pick "$ARG_MODEL" || exit 2
+echo "install.sh: model $M_ID ($M_BACKEND)"
+if [ "$M_BACKEND" = gguf ]; then
+  GGUF_ARGS=("$M_ID"); [ "$WITH_MODEL" = 0 ] && GGUF_ARGS+=(--no-model)
+  exec bash "$HERE/install-gguf.sh" "${GGUF_ARGS[@]}"
+fi
 HQ_DIR="${HQ_DIR:-$HERE/HyperQwen}"
 HQ_GIT="https://github.com/syv-ai/HyperQwen"
 # Commit these scripts were tested against (2026-10-27). HQ_REF=main for the latest.
 HQ_REF="${HQ_REF:-ce9615c4f2309be727407918a6c979bd67968069}"
-MODEL_REPO="${MODEL_REPO:-nchapman/Huihui-Qwen3.8-27B-abliterated-W4A16-GPTQ}"
+MODEL_REPO="${MODEL_REPO:-$M_REPO}"
 MODEL_DIR="$HQ_DIR/models/${MODEL_REPO##*/}"
 VLLM_VERSION="0.31.0"
 MIN_DISK_GB=45
-WITH_MODEL=1
-[ "${1:-}" = "--no-model" ] && WITH_MODEL=0
 
 log()  { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33mWARN: %s\033[0m\n' "$*" >&2; }
@@ -143,6 +162,6 @@ main() {
   install_extras
   fetch_and_prepare_model
   verify
-  log "Done. Start the server with:  bash $HERE/serve.sh   then test with:  bash $HERE/test.sh"
+  log "Done. Start the server with:  bash $HERE/serve.sh $M_ID   then test with:  bash $HERE/test.sh"
 }
 main "$@"

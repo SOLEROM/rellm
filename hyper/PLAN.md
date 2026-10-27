@@ -119,3 +119,29 @@ Tested 2026-10-27 on the 8 GB card: `claude-qwen.sh -p "Reply with exactly the w
 `HELLO`, success, ~16.6k-token prompt, **19 min to first token** (prefill), then ~0.8 tok/s.
 The prefix cache makes later turns of the same session faster (system prompt reused).
 The `total_cost_usd` Claude Code prints is its own estimate; nothing is billed.
+
+## Second backend: llama.cpp + Huihui Qwen3.6-35B-A3B (2026-10-27)
+
+The 27B cannot be made fast on 8 GB: every token streams ~11 GB of offloaded weights over PCIe.
+A mixture-of-experts model fixes that: `huihui-ai/Huihui-Qwen3.6-35B-A3B-abliterated-MTP-GGUF`
+has 35B parameters but only ~3B are active per token, so llama.cpp keeps attention and shared
+weights on the GPU and most experts in RAM, and each token touches little of either.
+
+- `models.sh` holds the model table; `install.sh <id>` / `serve.sh <id>` dispatch on the backend.
+- `install-gguf.sh`: prebuilt llama.cpp `b11934` (ubuntu CUDA 12.8; the system CUDA 12 libs were
+  enough here, the cudart bundle is fetched only if libs are missing), Q4_K GGUF (20.2 GiB),
+  sha256 checked against Hugging Face.
+- `serve-gguf.sh`: `--fit on` (auto GPU/RAM split), 64k context, q8_0 KV cache, flash attention,
+  `--spec-type draft-mtp --spec-draft-n-max 6` (model card), `--jinja`, alias = model id.
+- `templates/qwen3.6-35b-a3b.jinja`: the stock template raised "System message must be at the
+  beginning" on Claude Code requests; the patch renders later system messages as system turns.
+
+| check (RTX 2070 Max-Q 8 GB, 31 GB RAM, model on NFS) | result |
+|---|---|
+| `install.sh qwen3.6-35b-a3b` | PASS (resumed download, sha256 OK) |
+| load | ~4 min cold from NFS, 6.9 GB VRAM used |
+| `test.sh` | **6/6 PASS** (incl. Anthropic `/v1/messages`) |
+| decode | **16.6-18.1 tok/s** (MTP accepts ~23% of drafts) |
+| prefill | **281 tok/s** on a 12.4k-token prompt (answer correct) |
+| `claude-qwen.sh -p "...HELLO"` | `HELLO` in 82 s (vs 19 min on the 27B) |
+| `claude-qwen.sh` + Read tool | read `models.sh` and listed both ids, 97 s |

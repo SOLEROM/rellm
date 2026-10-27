@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# serve.sh — start HyperQwen's single-user server on the Huihui 27B model, with a
-# profile picked from the GPU it finds.
+# serve.sh: start the API server (127.0.0.1:18020) for one installed model.
 #
-#   bash serve.sh               # foreground; Ctrl-C stops it
-#   PROFILE=small bash serve.sh # force a profile: full | small
+#   bash serve.sh --list             # models (models.sh); install with install.sh <id>
+#   bash serve.sh                    # default model for this GPU (or $MODEL_ID)
+#   bash serve.sh qwen3.6-35b-a3b    # llama.cpp llama-server  (serve-gguf.sh)
+#   bash serve.sh qwen3.8-27b        # HyperQwen / vLLM        (this file)
 #
+# Both serve the OpenAI API (/v1/chat/completions) and the Anthropic API (/v1/messages)
+# under the model id as the model name. One model at a time: they share the port and GPU.
+#
+# HyperQwen profiles, picked from the GPU (PROFILE=full|small to force):
 # full  (>= 22 GB VRAM, Ampere+): HyperQwen's stock path, SPEC=mtp CTX=fast, 64k context.
 # small (< 22 GB or pre-Ampere):  fp16, no speculation, Triton attention, part of the
 #        weights in pinned host RAM (--cpu-offload-gb). Works, but every token streams
@@ -14,10 +19,18 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=models.sh
+source "$HERE/models.sh"
+case "${1:-}" in
+  --list) echo "Models:"; model_list; exit 0 ;;
+  -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+esac
+model_pick "${1:-}" || exit 2
+[ "$M_BACKEND" = gguf ] && exec bash "$HERE/serve-gguf.sh" "$M_ID"
 HQ_DIR="${HQ_DIR:-$HERE/HyperQwen}"
-MODEL_REPO="${MODEL_REPO:-nchapman/Huihui-Qwen3.8-27B-abliterated-W4A16-GPTQ}"
+MODEL_REPO="${MODEL_REPO:-$M_REPO}"
 export MODEL="${MODEL:-$HQ_DIR/models/${MODEL_REPO##*/}}"
-[ -f "$MODEL/config.json" ] || { echo "model not found at $MODEL: run install.sh first" >&2; exit 1; }
+[ -f "$MODEL/config.json" ] || { echo "model not found at $MODEL: run: bash install.sh $M_ID" >&2; exit 1; }
 
 # Prepared weights with VISION=0 (tower dropped), measured from the files: ~15 GB.
 WEIGHTS_GB="${WEIGHTS_GB:-15}"

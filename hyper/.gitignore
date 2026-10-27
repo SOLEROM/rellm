@@ -1,10 +1,14 @@
 # Created by install.sh on each host; never commit.
 HyperQwen/
 venv/
+# models/: GGUF downloads; llama.cpp/: prebuilt llama-server (install-gguf.sh)
 models/
+llama.cpp/
 *.safetensors
 *.bak-orig
 *.pt
+*.gguf
+*.part
 
 # Secrets
 api_key.txt
